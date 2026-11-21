@@ -3,11 +3,42 @@
 // not circulating (team, treasury, locked, burn) with a reason; their balances are read from the chain and
 // subtracted, and the coin page shows each one.
 import { getJSON } from '../../src/util.mjs';
-import { erc20TotalSupply, erc20Balance, splBalance, trc20Balance, sol, substrateValue, EXPLORER } from '../chains.mjs';
+import { erc20TotalSupply, erc20Balance, splBalance, trc20Balance, sol, substrateValue, evm, EXPLORER } from '../chains.mjs';
 import { resetSupply } from './trac.mjs';
 import { extraSupply } from './extra.mjs';
 
 const BURN = '0x000000000000000000000000000000000000dEaD';
+
+// BNB on BNB Smart Chain (BSC). BSC mints no new BNB: validators earn fees only. Every BNB that existed when BSC
+// launched was put in the TokenHub system contract at genesis (176,405,560.9 BNB, plus 1,000 BNB for two bootstrap
+// accounts). That is in the bscMainnetAllocData of the official client (github.com/bnb-chain/bsc, core/genesis_alloc.go)
+// and anyone can check it on an archive node: eth_getBalance(TokenHub, block 0).
+// BNB still inside TokenHub is not spendable on BSC: it is BNB burned on the old Beacon Chain, or Beacon Chain balances
+// nobody has claimed since the BC Fusion shut the Beacon Chain down. BNB at 0x...dEaD (quarterly auto-burns and the
+// BEP-95 per-block fee burn) and at the zero address can never move. So the chain itself gives a ceiling:
+//   genesis − TokenHub − dead address − zero address.
+// BNB Chain's own burn tracker (bnbburn.info, linked from BEP-95 and run by NodeReal for BNB Chain) also publishes
+// circulating supply. We use the lower of the two, so circulating is never overstated; if the tracker can't be read or
+// looks broken, the whole read fails and the site keeps the last good number.
+const BSC_GENESIS_BNB = 176406560.9;
+const BSC_TOKENHUB = '0x0000000000000000000000000000000000001004';
+const BSC_ZERO = '0x0000000000000000000000000000000000000000';
+const BNB_TRACKER = 'https://www.bnbburn.info/api/getBnbSupply';
+
+// Native BNB balance of one BSC address, read from BNB Chain's public RPC.
+async function bscBalance(addr) {
+  const hex = await evm('bsc', 'eth_getBalance', [addr, 'latest']);
+  if (typeof hex !== 'string' || !/^0x[0-9a-f]+$/i.test(hex)) throw new Error('bad BSC balance for ' + addr);
+  return Number(BigInt(hex) / 10n ** 12n) / 1e6;
+}
+
+// Circulating supply from BNB Chain's burn tracker (BSC plus any left on the Beacon Chain).
+async function bnbTracker() {
+  const d = await getJSON(BNB_TRACKER);
+  const s = Number(d.bscSupply) + Number(d.bcSupply || 0);
+  if (!(s > 0)) throw new Error('bad BNB tracker supply');
+  return s;
+}
 
 const tokenLink = p => p.chain === 'sol' ? `https://solscan.io/token/${p.address}`
   : p.chain === 'tron' ? `https://tronscan.org/#/token20/${p.address}`
@@ -174,6 +205,22 @@ const METHODS = {
       excluded.push({ reason: e.reason, holder: e.holder, amount: Number(b.amount) / dec, src: r.explorer ? r.explorer + e.holder : undefined });
     }
     return { circulating: total - excluded.reduce((s, e) => s + e.amount, 0), total, src: r.explorer || r.lcd, excluded, note: r.note };
+  },
+  // BNB: chain-read ceiling checked against BNB Chain's burn tracker; the lower one is circulating (see top of file).
+  async bnb() {
+    const [hub, dead, zero, tracker] = await Promise.all([bscBalance(BSC_TOKENHUB), bscBalance(BURN), bscBalance(BSC_ZERO), bnbTracker()]);
+    const ceiling = BSC_GENESIS_BNB - hub - dead - zero;
+    // more than 5% apart means one of the two reads is broken: fail rather than guess
+    if (Math.abs(tracker / ceiling - 1) > 0.05) throw new Error(`BNB tracker ${tracker} vs chain ${ceiling}`);
+    const bsc = EXPLORER.bsc + '/address/';
+    const excluded = [
+      { reason: 'TokenHub: burned on Beacon Chain or not yet claimed after BC Fusion', holder: BSC_TOKENHUB, amount: hub, src: bsc + BSC_TOKENHUB },
+      { reason: 'Burn address (auto-burns and BEP-95 fee burn)', holder: BURN, amount: dead, src: bsc + BURN },
+      { reason: 'Zero address (unspendable)', holder: BSC_ZERO, amount: zero, src: bsc + BSC_ZERO },
+    ];
+    if (tracker < ceiling) excluded.push({ reason: 'Not counted to match BNB Chain burn tracker (lower number wins)', amount: ceiling - tracker, src: 'https://www.bnbburn.info' });
+    return { circulating: Math.min(tracker, ceiling), total: ceiling, src: 'https://www.bnbburn.info', excluded,
+      note: `BSC genesis ${BSC_GENESIS_BNB.toLocaleString('en-US')} BNB minus TokenHub, burn and zero address (read from BSC), capped by BNB Chain's burn tracker` };
   },
   async multiversx() {
     const d = await getJSON('https://api.multiversx.com/economics');
