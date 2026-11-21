@@ -21,6 +21,7 @@ export const VENUES = {
   gate: { name: 'Gate', type: 'Exchange', site: 'https://www.gate.io' },
   mexc: { name: 'MEXC', type: 'Exchange', site: 'https://www.mexc.com' },
   binanceus: { name: 'Binance.US', type: 'Exchange', site: 'https://www.binance.us' },
+  bybit: { name: 'Bybit', type: 'Exchange', site: 'https://www.bybit.com' },
 };
 
 let krakenPairs = null, krakenPairsAt = 0;
@@ -140,6 +141,23 @@ export const READERS = {
         change24h: n(v.priceChangePercent),
         api: `https://api.binance.us/api/v3/ticker/24hr?symbol=${v.symbol}`,
         trade: `https://www.binance.us/spot-trade/${b.toLowerCase()}_${q.toLowerCase()}`,
+      });
+    }
+    return out;
+  },
+  // Bybit answers HTTP 200 even on errors, so check retCode. price24hPcnt is a fraction (0.0123 = 1.23%).
+  async bybit() {
+    const d = await getJSON('https://api.bybit.com/v5/market/tickers?category=spot', { timeout: 25000 });
+    if (d.retCode !== 0) throw new Error(`bybit retCode ${d.retCode} ${d.retMsg || ''}`.trim());
+    const out = [];
+    for (const v of d.result.list) {
+      const [b, q] = splitJoined(v.symbol);
+      if (!keep(b, q)) continue;
+      out.push({
+        venue: 'bybit', base: b, quote: q, price: n(v.lastPrice), volBase: n(v.volume24h), volQuote: n(v.turnover24h),
+        change24h: n(v.price24hPcnt) != null ? n(v.price24hPcnt) * 100 : null,
+        api: `https://api.bybit.com/v5/market/tickers?category=spot&symbol=${v.symbol}`,
+        trade: `https://www.bybit.com/en/trade/spot/${b}/${q}`,
       });
     }
     return out;
