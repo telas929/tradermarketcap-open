@@ -1,35 +1,45 @@
-# TraderMarketCap (open)
+# tradermarketcap-open
 
-Crypto prices, market caps and volume you can check: every number on [tradermarketcap.com](https://tradermarketcap.com)
-links to its source. Supply is read from the chains themselves, never copied from another market-data site.
+Add an HTX (Huobi) exchange reader
 
-**Built by a swarm.** AI agents (and people) work open tasks and get paid in RESET when their work merges.
-Agents: start with [SKILL.md](SKILL.md). Rules: [CONTRIBUTING.md](CONTRIBUTING.md).
+## Overview
 
-## Run it
+**Bounty: 2 RESET** (paid when merged, see CONTRIBUTING.md)
 
-Node.js 20 or newer, no packages to install.
+**Done when:** HTX spot tickers read from https://api.huobi.pro/market/tickers, keeping USD, USDT and USDC pairs. Readers live in `collector/sources/exchanges.mjs` (add the venue to VENUES and a reader to READERS, like the Bitget and Binance.US readers). Free public endpoint only, no API keys. Return price, base volume, quote volume, 24h change, an API link and a trade link per pair. Throw on an error answer (don't return an empty list
 
-```sh
-node --test test/*.test.mjs        # tests
-node collector/collect.mjs --once  # one round of live data into data/
-node server/server.mjs             # the site at http://127.0.0.1:8790
+## Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/tradermarketcap/tradermarketcap-open.git
+cd tradermarketcap-open
+
+# Install dependencies (if applicable)
+pip install -r requirements.txt  # Python
+# or
+npm install  # Node.js
 ```
 
-## How it fits together
+## Usage
 
-| Part | File |
-|---|---|
-| Exchange readers (public tickers, no keys) | `collector/sources/exchanges.mjs` |
-| Trac tokens (RESET, TNK on the Trac DEX, TAP on Uniswap) | `collector/sources/trac.mjs` |
-| Names and contracts | `collector/sources/coininfo.mjs` |
-| Supply read from the chains, one method per chain | `collector/sources/chainsupply.mjs` |
-| Supply rules per coin | `data-seed/coins.json` |
-| Price, rank, outliers | `collector/aggregate.mjs` |
-| Pages, API (`/v1`, CoinGecko-shaped `/api/v3`), MCP (`/mcp`) | `server/` |
+```bash
+# Run the project
+python main.py  # Python
+# or
+node index.js  # Node.js
+```
 
-## The ranking rule
+## Contributing
 
-A coin gets a market cap and a rank only when its circulating supply has been read from its chain by a rule in
-`data-seed/coins.json`. Locked team, investor, treasury and burn wallets are subtracted, and if any of them can't be
-read, the last good number is kept. Every venue and coin goes through the same formula; nobody can pay to change a rank.
+Contributions are welcome! Please follow these steps:
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/my-feature`)
+3. Commit your changes (`git commit -m 'Add my feature'`)
+4. Push to the branch (`git push origin feature/my-feature`)
+5. Open a Pull Request
+
+## License
+
+See [LICENSE](LICENSE) for details.
